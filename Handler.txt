@@ -1,0 +1,228 @@
+Android Studio 消息机制 
+
+Handler
+
+作用：我们通常会把耗时的操作放在子线程（Thread）里面去执行，因为子线程不能更新UI，所以当子线程需要更新UI的时候就需要借助到安卓的消息机制，也就是Handler消息机制。
+
+优势：主线程通过为子线程提供一个Handler，这样子线程在完成耗时操作后可以通过Handler提交给主线程。这种方式能保证主线程保持对输入的响应性并且能避免由于5秒输入事件的超时引发的ANR（Application Not Responding）对话框。
+
+主线程：也叫UI线程，或称为ActivityThread，用于运行四大组件和处理他们用户的交互。ActivityThread管理应用进程的执行（相当于普通Java程序的main[]入口函数），在Android系统中，在默认情况下，一个应用程序内的各个组件（如Activity，BroadcastReceiver，Service）都会在同一个进程（Process）里进行，且由此进程的主线程负责执行。那么ActivityThread既要处理Actiivty组件中UI事件，又要处理Service后台服务工作，通常会忙不过来，因此，为了解决此为题，主线程可以创建多个子线程来处理后台服务工作，而本身专心处理UI画面的时间。
+
+子线程：用于执行耗时操作，比如数据流的输入输出操作和网络请求等。安卓3.0以后要求耗时访问网络必须在子线程中进行，更新UI的工作必须叫给主线程，子线程在安卓里是不允许更新UI的。
+
+基本概念:
+
+什么是消息机制：不同线程之间的通信
+
+什么安卓的消息机制，就是Handler运行机制。
+
+安卓消息机制有什么用：避免ANR（Application Not Responding），一旦发生ANR，程序就奔溃了。
+
+什么时候回触发ANR：在activity中超过5秒的时间未能相应下一个事件或者BroadcastReceiver超过10未相应。
+
+如何避免ANR：主线程不执行耗时操作或者子线程不更新UI界面操作。
+
+结合起来就是：把耗时操作放到子线程去执行，然后通过Handler更新UI界面
+
+如何手动制造ANR演示
+
+在Activity new一个线程 睡眠超过5秒。
+
+public class MainActicity extends AppCompactActivity{
+
+    private TextView mTv;
+    @Override
+    public void onCreate(Bundle saveInstanceState){
+        super.onCreate(saveInstanceState);
+        setContentView(R.layout.activity_main);
+        mTv = (TextView) findViewById(R.id.mTv);
+        mTv.setOnClickListener(View.OnClickListener(){
+            @Override
+            public void onClick(View v){
+                Log.d("test","点击文字");
+                try{
+                    Thread.sleep(300000);
+                }catch (InterruptedException e){
+                    e.printStackTrace();
+                }
+            }
+        }
+    });
+}
+
+Handler的简单实用
+
+public class MainActivity exteds AppCompactActivity{
+
+    private TextView mTv;
+    private Handler mHandler;
+    
+    //声明常量
+    private static final int MSG_UPDATE_TEXT = 1;
+    private static final int MSG_UPDATE_WAY_TOW = 2;
+    @Override
+    public void onCreate(Bundle saveInstance){
+        super.onCreate(saveInstance);
+        setContentView(R.layout.acyivity_main);
+
+        mHandler = new Handler(){
+            @Overrid
+            public void handlerMessage(Message msg){
+                switch(msg.what){
+                    case MSG_UPDATE_TEXT:
+                        mTv.setText("改变文字")
+                        break;
+                    case MSG_UPDATE_WAY_TOW:
+                        break;
+                }
+            }
+        }
+
+        mTv = (TextView) findViewById(R.id.mTv);
+        mTv.setOnClickListener(new View.OnClickListener(){
+            @Override
+            public void onClick(View v){
+                
+                //方法一
+                mHandler.setEmptyMessage(MSG_UPDATE_TEXT);
+
+                //方法二
+                Message msg = new Message();
+                msg.what = MSG_UPDATE_WAY_TWO;
+                mHandler.setMessage(msg);
+            }
+        }
+    }
+}
+
+Handler的铁三角机制——Handler、MessageQueue、Looper
+
+1.Handler：我们常常用Handler来更新UI，但是Handler并不是被用来更新UI的。同时我们的耗时I/O操作、读取文件，访问网络等等都是可以在Handler里面操作的。
+
+2.MessageQueue：消息队列
+MessageQueue内部存储了一组信息，存放的是Message，以队列的形式对外提供了插入和删除的工作，这两个操作对应着两个方法：
+·插入-入队enqueueMessage（Message msg，long when）
+·删除-出队next（），next中是一个无限循环的方法，如果消息队列里面没有消息，那么他就会处于阻塞状态，当有新消息到来时，next就会返回这条消息，然后将其从单链表中移除。
+
+3.Looper：轮询器
+Looper是一个轮询器，其对MessageQueue进行轮询，当如果有的消息就交给Handler处理，如果轮询不到新的消息，就处于阻塞状态。
+
+4.主线程（ActivityThread）被创建的时候就会创建Looper了，但是线程是没有默认创建Looper的，因此在主线程我们可以直接使用，但是在子线程new Thread中我们要准备Looper，Looper.prepare();
+
+5.在子线程中使用，new Handler的handler不能没有Looper
+public class MainActivity extends AppCompactActivity{
+
+    private Handler handler1;
+    private Handler handler2;
+    @Override
+    public void onCreate(Bundle savaInstanceState){
+        setContenView(R.layout.activity_main);
+        handler = new Handler(){
+            new Thread(new Runnable(){
+                @Override
+                public void run(){
+                    Looper.prepare();
+                    handler2 = new Handler();
+                }
+            }).start();
+        }
+    }
+}
+
+6.Looper的ThreadLocal
+ThreadLocal并不是线程，他的作用是帮助Handler获得当前线程的Looper（多个线程可能有多个Looper）
+
+Looper的几个方法：
+·创建：
+    ·Looper.prepare():为当前线程创建一个Looper
+    ·prepareMainLooper()：UI线程（ActivityThread）创建Looper的
+·开启：
+    ·Looper.loop()：开启消息轮询
+·退出
+    ·quit():直接退出Looper
+    ·quitSafely()：设定一个标记，只有当目前已有消息处理完毕之后才会执行退出操作
+当Looper退出之后，Handler就无法发送消息，send出去的消息发返回false，当我们在子线程中创建了Looper并且所有消息都处理完毕的时候，要记得调用quit方法,不让Looper一直阻塞下去。
+
+
+
+Handler的工作原理
+
+1.Handler主要工作：发送消息和接收消息
+
+
+·Demo/sendEmptyMessage
+
+public class MainActivity extends AppCompactActivity{
+
+    private TextView mTv;
+    private Handler handler;
+    private static final int MSG_CHANGE_TEXT = 1;
+    @Override 
+    public void onCreate(Bundle saveInstanceState){
+        setContentView(R.layout.activity_main);
+        mTv = (TextView) findViewById(R.id.mTv);
+
+        handerl = new Handler(){
+            @Override
+            public void handlerMessage(Message msg){
+                switch(msg.what){
+                    case MSG_CHANGE_TEXT:
+                        mTv.setText("改变的文字")
+                        break;
+                }
+            }
+        }
+        mTv.setOnClickListener(new OnClickListener(){
+            @Override
+            public void onClick(View v){
+                handler.sendEmptyMessage(MSG_CHANGE_TEXT);
+            }
+        }
+    }
+}
+
+·Demo/postDelayed
+
+public class MainActivity extends AppCompactActivity{
+
+    private TextView mTv;
+    private Handler handler;
+    @Override
+    public void onCreate(Bundle savaInstanceState){
+        setContentView(R.layout.activity_main);
+        handler = new Handler();
+        mTv = (TextView) findViewById(R.id.mTv);
+
+        mTv.setOnClickListener(new OnClickListener(){
+            @Override
+            public void onClick(View v){
+                change();
+            }
+        });
+    }
+    private void change(){
+        new Thread(new Runnable(){
+            @Override
+            public void run(){
+                handler.postDelayed(new Runnable(){
+                    @Override
+                    public void run(){
+                        mTv.setText("改变文字")
+                    }
+                },300);
+            }
+        }).start();
+    }
+}
+
+·Handler消息接收的形式
+
+1.Handler发送消息仅仅是调用MessageQueue的enqueueMessage向其插入一条信息到MessageQueue
+
+2.Looper不断轮询调用MessageQueue的next方法
+
+3.如果发现messaeg就调用dispatchMessage，IdispatchMessaeg被成功调用，接着调用handlerMessaeg();
+
+
+
+
